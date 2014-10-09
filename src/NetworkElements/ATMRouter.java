@@ -8,6 +8,7 @@
 package NetworkElements;
 
 import java.util.*;
+
 import DataTypes.*;
 
 public class ATMRouter implements IATMCellConsumer{
@@ -15,7 +16,7 @@ public class ATMRouter implements IATMCellConsumer{
 	private ArrayList<ATMNIC> nics = new ArrayList<ATMNIC>(); // all of the nics in this router
 	private TreeMap<Integer, ATMNIC> nextHop = new TreeMap<Integer, ATMNIC>(); // a map of which interface to use to get to a given router on the network
 	private TreeMap<Integer, NICVCPair> VCtoVC = new TreeMap<Integer, NICVCPair>(); // a map of input VC to output nic and new VC number
-	private boolean trace=false; // should we print out debug code?
+	private boolean trace=true; // should we print out debug code?
 	private int traceID = (int) (Math.random() * 100000); // create a random trace id for cells
 	private ATMNIC currentConnAttemptNIC = null; // The nic that is currently trying to setup a connection
 	private boolean displayCommands = true; // should we output the commands that are received?
@@ -50,6 +51,69 @@ public class ATMRouter implements IATMCellConsumer{
 		
 		if(cell.getIsOAM()){
 			// What's OAM for?
+			int toAddress = this.getIntFromEndOfString(cell.getData());
+			
+			if (cell.getData().startsWith("setup ")) {
+				//int toAddress = this.getIntFromEndOfString(cell.getData());
+				if (this.address == toAddress) {
+					this.receivedSetup(cell);
+					//System.out.println("Address matched");
+					ATMCell call = new ATMCell(0, "callpro " + toAddress, this.getTraceID());
+					call.setIsOAM(true);
+					this.sentCallProceeding(call);
+					nic.sendCell(call, this);
+					
+				}
+				else {
+					if (this.nics.size() <= 1) {
+						System.out.println("Nowhere to forward");
+						return;
+					}
+					else {
+						if (this.currentConnAttemptNIC != null) {
+							ATMCell wait = new ATMCell(0, "wait " + toAddress, this.getTraceID());
+							wait.setIsOAM(true);
+							this.sentWait(wait);
+							nic.sendCell(wait, this);
+							return;
+						}
+						this.receivedSetup(cell);
+						ATMCell call = new ATMCell(0, "callpro " + toAddress, this.getTraceID());
+						call.setIsOAM(true);
+						this.sentCallProceeding(call);
+						nic.sendCell(call, this);
+						if (this.nextHop.containsKey(toAddress)) {
+							ATMNIC nicSent = this.nextHop.get(toAddress);
+							this.sentSetup(cell);
+							nicSent.sendCell(cell, this);
+							this.currentConnAttemptNIC = nicSent;
+						}
+						else {
+							for (ATMNIC nicSent : this.nics) {
+								if (!nicSent.equals(nic)) {
+									nicSent.sendCell(cell, this);
+									this.currentConnAttemptNIC = nicSent;
+								}
+							}
+						}
+					}
+				}
+			}
+			else if (cell.getData().startsWith("wait ")) {
+				//System.out.println ("not setup");
+				this.receivedWait(cell);
+				ATMCell resent = new ATMCell(0, "setup " + toAddress, this.getTraceID());
+				resent.setIsOAM(true);
+				this.sentSetup(resent);
+				nic.sendCell(resent, this);
+			}
+			else if (cell.getData().startsWith("callpro ")){
+				this.receivedCallProceeding(cell);
+			}
+			else {
+				System.out.println("Oh no");
+			}
+			
 		}
 		else{
 			// find the nic and new VC number to forward the cell on

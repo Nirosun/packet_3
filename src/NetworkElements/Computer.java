@@ -39,7 +39,9 @@ public class Computer implements IATMCellConsumer{
 	 */
 	public void receiveCell(ATMCell cell, ATMNIC nic){
 		if(cell.getIsOAM()){
-			
+			if (cell.getData().startsWith("callpro ")){
+				this.receivedCallProceeding(cell);
+			}
 		}
 		else{
 			
