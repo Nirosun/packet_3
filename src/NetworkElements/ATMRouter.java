@@ -46,59 +46,90 @@ public class ATMRouter implements IATMCellConsumer{
 	 * @since 1.0
 	 */
 	public void receiveCell(ATMCell cell, ATMNIC nic){
-		if(trace)
-			System.out.println("Trace (ATMRouter): Received a cell " + cell.getTraceID());
+		//if(trace)
+			//System.out.println("Trace (ATMRouter): Received a cell " + cell.getTraceID());
 		
 		if(cell.getIsOAM()){
 			// What's OAM for?
 			int toAddress = this.getIntFromEndOfString(cell.getData());
 			
-			if (cell.getData().startsWith("setup ")) {
-				//int toAddress = this.getIntFromEndOfString(cell.getData());
-				if (this.address == toAddress) {
+			if (cell.getData().startsWith("setup ")) {		
+				
+				if (this.address == toAddress) {	// dest address match
 					this.receivedSetup(cell);
 					//System.out.println("Address matched");
 					ATMCell call = new ATMCell(0, "callpro " + toAddress, this.getTraceID());
 					call.setIsOAM(true);
 					this.sentCallProceeding(call);
-					nic.sendCell(call, this);
+					nic.sendCell(call, this);	
 					
+					// send connect
+					int thisVC;
+					if (!this.VCtoVC.isEmpty()) {
+						thisVC = this.VCtoVC.lastKey() + 1;
+					}
+					else {
+						thisVC = 1;
+					}
+					//thisVC = (cell.getVC() > thisVC) ? cell.getVC() : thisVC;
+					if (trace) {
+						System.out.println("Trace (ATMRouter): First free VC = " + thisVC);
+					}
+					this.VCtoVC.put(thisVC, new NICVCPair(nic, thisVC));
+					
+					ATMCell conn = new ATMCell(0, "connect " + thisVC, this.getTraceID());
+					conn.setIsOAM(true);
+					this.sentConnect(conn);
+					nic.sendCell(conn, this);					
 				}
-				else {
-					if (this.nics.size() <= 1) {
+				
+				else {	// not dest address
+					if (this.nics.size() <= 1) {	// invalid end point
 						System.out.println("Nowhere to forward");
 						return;
 					}
 					else {
-						if (this.currentConnAttemptNIC != null) {
+						if (currentConnAttemptNIC != null //&& 
+								/*!this.currentConnAttemptNIC.equals(nic)*/) {	// is already trying to setup
 							ATMCell wait = new ATMCell(0, "wait " + toAddress, this.getTraceID());
 							wait.setIsOAM(true);
 							this.sentWait(wait);
 							nic.sendCell(wait, this);
 							return;
 						}
+						
+						currentConnAttemptNIC = nic;
+						
+						// send call proceeding
 						this.receivedSetup(cell);
 						ATMCell call = new ATMCell(0, "callpro " + toAddress, this.getTraceID());
 						call.setIsOAM(true);
 						this.sentCallProceeding(call);
 						nic.sendCell(call, this);
+						
+						// forward setup
+						/*if (!this.VCtoVC.isEmpty()) {
+							cell.setVC(this.VCtoVC.lastKey() + 1);
+						}*/
+						
 						if (this.nextHop.containsKey(toAddress)) {
 							ATMNIC nicSent = this.nextHop.get(toAddress);
 							this.sentSetup(cell);
 							nicSent.sendCell(cell, this);
-							this.currentConnAttemptNIC = nicSent;
+							//this.currentConnAttemptNIC = nicSent;
 						}
 						else {
 							for (ATMNIC nicSent : this.nics) {
 								if (!nicSent.equals(nic)) {
 									nicSent.sendCell(cell, this);
-									this.currentConnAttemptNIC = nicSent;
+									//this.currentConnAttemptNIC = nicSent;
 								}
 							}
 						}
 					}
 				}
 			}
+			
 			else if (cell.getData().startsWith("wait ")) {
 				//System.out.println ("not setup");
 				this.receivedWait(cell);
@@ -107,18 +138,96 @@ public class ATMRouter implements IATMCellConsumer{
 				this.sentSetup(resent);
 				nic.sendCell(resent, this);
 			}
-			else if (cell.getData().startsWith("callpro ")){
+			else if (cell.getData().startsWith("callpro ")) {
 				this.receivedCallProceeding(cell);
 			}
+			else if (cell.getData().startsWith("connect ")) {
+				int inVC = this.getIntFromEndOfString(cell.getData());
+				int outVC;
+				this.receivedConnect(cell);
+				
+				if (this.address == 13) {
+					System.out.println("13");
+				}
+				
+				if (this.VCtoVC.isEmpty()) {
+					outVC = 1;
+				}
+				else {
+					outVC = (this.VCtoVC.lastKey() + 1 < inVC) ? 
+							(this.VCtoVC.lastKey() + 1) : inVC;
+				}
+				
+				// forward connect
+				if (this.currentConnAttemptNIC != null) {
+					ATMCell conn = new ATMCell(0, "connect " + outVC, this.getTraceID());
+					conn.setIsOAM(true);					
+					this.sentConnect(conn);
+					this.currentConnAttemptNIC.sendCell(conn, this);
+					this.VCtoVC.put(outVC, new NICVCPair(nic, inVC));
+					//this.VCtoVC.put(inVC, new NICVCPair(this.currentConnAttemptNIC, outVC));
+					this.currentConnAttemptNIC = null;
+				}
+				else {
+					System.out.println("Error: currentConnAttemptNIC is null.");
+					return;
+				}
+				
+				// send connect ack
+				ATMCell ack = new ATMCell(0, "connack " + inVC, this.getTraceID());
+				ack.setIsOAM(true);
+				this.sentConnectAck(ack);
+				nic.sendCell(ack, this);
+
+			}
+			else if (cell.getData().startsWith("connack ")) {
+				this.receiveConnectAck(cell);
+			}
+			else if (cell.getData().startsWith("end ")) {
+				int endVC = this.getIntFromEndOfString(cell.getData());
+				if (!this.VCtoVC.containsKey(endVC)) {
+					System.out.println("Error: End failed because no end vc.");
+					return;
+				}
+				ATMNIC outNIC = this.VCtoVC.get(endVC).getNIC();
+				int outVC = this.VCtoVC.get(endVC).getVC();
+				if (nic == outNIC) {
+					////////////////////////
+				}
+				
+			}
+			else if (cell.getData().startsWith("endack ")) {
+				
+				
+			}
 			else {
-				System.out.println("Oh no");
+				System.out.println("Error: Message not implemented.");
 			}
 			
 		}
-		else{
+		
+		else {
 			// find the nic and new VC number to forward the cell on
 			// otherwise the cell has nowhere to go. output to the console and drop the cell
-		}		
+			if (this.VCtoVC.isEmpty()) {
+				System.out.println("Error: vc lookup table is empty.");
+				return;
+			}
+			if (!this.VCtoVC.containsKey(cell.getVC())) {
+				this.cellNoVC(cell);
+				return;
+			}
+			int outVC = this.VCtoVC.get(cell.getVC()).getVC();
+			ATMNIC outNIC = this.VCtoVC.get(cell.getVC()).getNIC();
+			if (outNIC != nic) {
+				cell.setVC(outVC);
+				outNIC.sendCell(cell, this);
+			}
+			else {
+				this.cellDeadEnd(cell);
+			}
+			
+		}	
 	}
 	
 	/**

@@ -42,6 +42,20 @@ public class Computer implements IATMCellConsumer{
 			if (cell.getData().startsWith("callpro ")){
 				this.receivedCallProceeding(cell);
 			}
+			else if (cell.getData().startsWith("connect ")) {
+				this.receivedConnect(cell);
+				
+				this.vcNumber = this.getIntFromEndOfString(cell.getData());
+				System.out.println("The connection is setup on VC " + this.vcNumber);
+				
+				ATMCell ack = new ATMCell(this.vcNumber, "connack " + this.vcNumber, this.getTraceID());
+				ack.setIsOAM(true);
+				nic.sendCell(ack, this);
+				this.sentConnectAck(ack);
+			}
+			else {
+				System.out.println("Error: Message not implemented.");
+			}
 		}
 		else{
 			

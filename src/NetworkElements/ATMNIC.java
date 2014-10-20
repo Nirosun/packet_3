@@ -19,6 +19,7 @@ public class ATMNIC {
 	private boolean tail=true, red=false, ppd=false, epd=false; // set what type of drop mechanism
 	private int maximumBufferCells = 20; // the maximum number of cells in the output buffer
 	private int startDropAt = 10; // the minimum number of cells in the output buffer before we start dropping cells
+	private boolean dropSamePacketCell = false;
 	
 	/**
 	 * Default constructor for an ATM NIC
@@ -63,7 +64,12 @@ public class ATMNIC {
 	private void runTailDrop(ATMCell cell){
 		boolean cellDropped = false;
 		
-		outputBuffer.add(cell);
+		if (outputBuffer.size() < this.maximumBufferCells) {
+			outputBuffer.add(cell);
+		}
+		else {
+			cellDropped = true;
+		}
 		
 		// Output to the console what happened
 		if(cellDropped)
@@ -82,14 +88,31 @@ public class ATMNIC {
 		boolean cellDropped = false;
 		double dropProbability = 0.0;
 		
-		outputBuffer.add(cell);
+		if (outputBuffer.size() > this.startDropAt) {
+			if (outputBuffer.size() < this.maximumBufferCells) {
+				dropProbability = (outputBuffer.size() - this.startDropAt) 
+						/ (double)(this.maximumBufferCells - this.startDropAt);
+			}
+			else {
+				dropProbability = 1;
+			}
+		}
+		
+		if (dropProbability > 0) {
+			double r = Math.random() * 1.0 / dropProbability;
+			if (r <= 1.0) {
+				cellDropped = true;
+			}
+		}
 		
 		// Output to the console what happened
 		if(cellDropped)
 			System.out.println("The cell " + cell.getTraceID() + " was dropped with probability " + dropProbability);
-		else
+		else {
+			outputBuffer.add(cell);
 			if(this.trace)
-			System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+				System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+		}
 	}
 	
 	/**
@@ -99,15 +122,42 @@ public class ATMNIC {
 	 */
 	private void runPPD(ATMCell cell){
 		boolean cellDropped = false;
+		double dropProbability = 0.0;
 		
-		outputBuffer.add(cell);
+		if (cell.getData().equals("")) {
+			this.dropSamePacketCell = false;
+		}
+		
+		if (this.dropSamePacketCell == false) {
+			if (outputBuffer.size() > this.startDropAt) {
+				if (outputBuffer.size() < this.maximumBufferCells) {
+					dropProbability = (outputBuffer.size() - this.startDropAt) 
+							/ (double)(this.maximumBufferCells - this.startDropAt);
+				}
+				else {
+					dropProbability = 1;
+				}
+			}			
+			if (dropProbability > 0) {
+				double r = Math.random() * 1.0 / dropProbability;
+				if (r <= 1.0) {
+					cellDropped = true;
+					this.dropSamePacketCell = true;
+				}
+			}
+		}
+		else {
+			cellDropped = true;
+		}		
 		
 		// Output to the console what happened
 		if(cellDropped)
 			System.out.println("The cell " + cell.getTraceID() + " was dropped");
-		else
+		else {
+			outputBuffer.add(cell);
 			if(this.trace)
-			System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+				System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+		}
 	}
 	
 	/**
@@ -118,14 +168,51 @@ public class ATMNIC {
 	private void runEPD(ATMCell cell){
 		boolean cellDropped = false;
 		
-		outputBuffer.add(cell);
+		if (cell.getData().equals("")) {
+			this.dropSamePacketCell = false;
+			
+			double totalDropProbability = 1.0;
+			int size = cell.getPacketData().getSize() / (48*8) + 1;
+			
+			for (int i = 0; i < size; i ++) {
+				double dropProbability = 0.0;
+				if (outputBuffer.size() + i > this.startDropAt) {
+					if (outputBuffer.size() + i < this.maximumBufferCells) {
+						dropProbability = (outputBuffer.size() + i - this.startDropAt) 
+								/ (double)(this.maximumBufferCells - this.startDropAt);
+					}
+					else {
+						dropProbability = 1;
+					}
+				}							
+				totalDropProbability *= 1.0 - dropProbability;
+			}
+			totalDropProbability = 1.0 - totalDropProbability;
+			
+			if (totalDropProbability > 0) {
+				double r = Math.random() * 1.0 / totalDropProbability;
+				if (r <= 1.0) {
+					cellDropped = true;
+					this.dropSamePacketCell = true;
+				}
+			}
+		}
+		else {
+			if (this.dropSamePacketCell) {
+				cellDropped = true;
+			}
+		}		
+		
+		//outputBuffer.add(cell);
 		
 		// Output to the console what happened
 		if(cellDropped)
 			System.out.println("The cell " + cell.getTraceID() + " was dropped");
-		else
+		else {
+			outputBuffer.add(cell);
 			if(this.trace)
-			System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+				System.out.println("The cell " + cell.getTraceID() + " was added to the output queue");
+		}
 	}
 	
 	/**
