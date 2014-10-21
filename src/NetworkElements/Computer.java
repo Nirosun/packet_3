@@ -53,7 +53,12 @@ public class Computer implements IATMCellConsumer{
 				nic.sendCell(ack, this);
 				this.sentConnectAck(ack);
 			}
+			else if (cell.getData().startsWith("endack ")) {
+				this.receivedEndAck(cell);
+				//this.re
+			}
 			else {
+				System.out.println(cell.getData());
 				System.out.println("Error: Message not implemented.");
 			}
 		}

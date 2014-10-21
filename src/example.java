@@ -99,12 +99,20 @@ public class example {
 		//comp1.sendPacket(500);
 		comp1.setupConnection(13);
 		comp2.setupConnection(14);
-		for(int i=0; i<12; i++)
+		for(int i=0; i<13; i++)
 			this.tock();
-		comp1.sendPacket(2000);
-		comp1.sendPacket(3000);
-		comp1.sendPacket(400);
 		//comp1.sendPacket(2000);
+		//comp1.sendPacket(3000);
+		//comp1.sendPacket(400);
+		//comp1.sendPacket(2000);
+		
+		comp1.endConnection();
+		
+		for(int i=0; i<6; i++)
+			this.tock();
+		
+		//comp2.sendPacket(2000);
+		
 		for(int i=0; i<8; i++)
 			this.tock();
 	}

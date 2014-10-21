@@ -143,19 +143,20 @@ public class ATMRouter implements IATMCellConsumer{
 			}
 			else if (cell.getData().startsWith("connect ")) {
 				int inVC = this.getIntFromEndOfString(cell.getData());
-				int outVC;
+				int outVC = 1;
 				this.receivedConnect(cell);
 				
-				if (this.address == 13) {
-					System.out.println("13");
-				}
-				
-				if (this.VCtoVC.isEmpty()) {
-					outVC = 1;
-				}
-				else {
-					outVC = (this.VCtoVC.lastKey() + 1 < inVC) ? 
-							(this.VCtoVC.lastKey() + 1) : inVC;
+				if (!this.VCtoVC.isEmpty()) {
+					//outVC = (this.VCtoVC.lastKey() + 1 < inVC) ? 
+							//(this.VCtoVC.lastKey() + 1) : inVC;
+					//outVC = this.VCtoVC.lastKey() + 1;
+					outVC = this.VCtoVC.lastKey() + 1;
+					for (int i = 0; i < this.VCtoVC.lastKey(); i ++) {
+						if (!this.VCtoVC.containsKey(i)) {
+							outVC = i;
+							break;
+						}
+					}
 				}
 				
 				// forward connect
@@ -185,20 +186,32 @@ public class ATMRouter implements IATMCellConsumer{
 			}
 			else if (cell.getData().startsWith("end ")) {
 				int endVC = this.getIntFromEndOfString(cell.getData());
-				if (!this.VCtoVC.containsKey(endVC)) {
-					System.out.println("Error: End failed because no end vc.");
-					return;
+				ATMCell endack = new ATMCell(0, "endack " + endVC, this.getTraceID());
+				endack.setIsOAM(true);
+				this.sentEndAck(endack);
+				nic.sendCell(endack, this);
+							
+				if (this.VCtoVC.get(endVC) == null) {
+					if (trace)
+						System.out.println("Trace (ATMRouter): Router " + this.address + " connection ended.");
+						return;
 				}
-				ATMNIC outNIC = this.VCtoVC.get(endVC).getNIC();
-				int outVC = this.VCtoVC.get(endVC).getVC();
-				if (nic == outNIC) {
-					////////////////////////
+				
+				int nextVC = this.VCtoVC.get(endVC).getVC();
+				ATMCell end = new ATMCell(0, "end " + nextVC, cell.getTraceID());
+				end.setIsOAM(true);
+				this.VCtoVC.get(endVC).getNIC().sendCell(end, this);
+				this.sentEnd(end);
+				
+				if (trace) {
+					System.out.println("Trace (ATMRouter): Router " + this.address + " remove " + endVC + " " + nextVC);
 				}
+				
+				this.VCtoVC.remove(nextVC);
 				
 			}
 			else if (cell.getData().startsWith("endack ")) {
-				
-				
+				this.receivedEndAck(cell);				
 			}
 			else {
 				System.out.println("Error: Message not implemented.");
